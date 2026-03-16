@@ -1,0 +1,28 @@
+# Игнорировать ВСЕ папки bin и obj в ЛЮБОМ месте проекта
+**/bin/
+**/obj/
+**/.vs/
+**/TestResults/
+**/packages/
+
+# Игнорировать файлы с определенными расширениями в любом месте
+*.user
+*.suo
+*.cache
+*.ilk
+*.pdb
+*.log
+*.dll
+*.exe
+*.nupkg
+*.bak
+*.sln.iml
+*.DotSettings
+*.DotSettings.user
+*.sqlite
+
+# ============ SPECIFIC FILES ============
+identifier.sqlite
+
+# ============ IDE ============
+.idea/

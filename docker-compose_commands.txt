@@ -1,0 +1,12 @@
+# Запустить инфраструктуру
+docker-compose -f docker-compose.dev.yml up -d
+
+# Посмотреть логи
+docker-compose -f docker-compose.dev.yml logs -f
+
+# Остановить
+docker-compose -f docker-compose.dev.yml down
+
+# Перезапустить с очисткой
+docker-compose -f docker-compose.dev.yml down -v
+docker-compose -f docker-compose.dev.yml up -d
