@@ -2,6 +2,8 @@ namespace RabbitMQ.Module.Tests;
 
 using Contracts;
 
+using Messaging;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +13,7 @@ using Tools;
 
 using Xunit.Abstractions;
 
-public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifetime
+public class PublisherConfirmsTests(ITestOutputHelper output) : IAsyncLifetime
 {
 
     #region Fields
@@ -24,24 +26,23 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
     private readonly ILoggerFactory _loggerFactory = new TestLoggerFactory(output);
     private MessagingModule? _module;
-    private IPublisher? _publisher;
-    private readonly List<TestMessage> _receivedMessages = [];
     private readonly SemaphoreSlim _messageSignal = new(0);
+    private readonly List<TestMessage> _receivedMessages = [];
 
     #endregion
 
     #region Methods
 
     [Fact]
-    public async Task Consumer_ShouldReceiveMessage_WhenPublished()
+    public async Task PublishAsync_WithConfirmsEnabled_ShouldWaitForConfirmation()
     {
         // Arrange
         ushort port = _rabbitMqContainer.GetMappedPublicPort(5672);
+
         output.WriteLine($"RabbitMQ запущен на порту: {port}");
 
         string connectionString = $"amqp://guest:guest@localhost:{port}";
         output.WriteLine($"Строка подключения: {connectionString}");
-
         // Создаем DI контейнер для теста
         var services = new ServiceCollection();
         services.AddSingleton(this); // Регистрируем текущий тестовый класс
@@ -65,12 +66,8 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
                 c.AutoDelete = true;
             });
 
-        _publisher = _module.CreatePublisher();
-
-        await _module.StartConsumersAsync();
-        output.WriteLine("Потребители запущены");
-
-        await Task.Delay(500);
+        var publisher = _module.CreatePublisher() as Publisher;
+        publisher?.ResetStats();
 
         var testMessage = new TestMessage
         {
@@ -78,33 +75,47 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
             Number = 42
         };
 
+        await _module.StartConsumersAsync();
+
         // Act
-        await _publisher.PublishAsync(
-            testMessage,
-            config =>
+        Exception? exception = await Record.ExceptionAsync(async () =>
+        {
+            if (publisher != null)
             {
-                config.WithRoutingKey("test.queue");
-            });
+                await publisher.PublishAsync(
+                    testMessage,
+                    config =>
+                    {
+                        config.WithRoutingKey("test.queue");
+                        config.WithMandatory();
+                    });
+            }
+        });
 
         // Assert
+        Assert.True(publisher?.LastPublishWasConfirmed, "Сообщение должно быть подтверждено");
+        Assert.NotNull(publisher?.LastConfirmLatency);
+        Assert.True(
+            publisher.LastConfirmLatency.Value.TotalMilliseconds < 1000,
+            "Подтверждение должно прийти быстро");
+
         bool messageReceived = await _messageSignal.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.True(messageReceived, "Сообщение не было получено");
         Assert.Single(_receivedMessages);
         Assert.Equal("Hello", _receivedMessages[0].Text);
         Assert.Equal(42, _receivedMessages[0].Number);
+        Assert.Null(exception);
     }
 
     public async Task InitializeAsync()
     {
-        output.WriteLine("Запуск RabbitMQ контейнера...");
+        output.WriteLine("Запуск RabbitMQ...");
         await _rabbitMqContainer.StartAsync();
-        output.WriteLine("RabbitMQ контейнер запущен");
+        output.WriteLine("RabbitMQ запущен");
     }
 
     public async Task DisposeAsync()
     {
-        output.WriteLine("Очистка ресурсов...");
-
         if (_module != null)
         {
             await _module.DisposeAsync();
@@ -112,7 +123,6 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
         await _rabbitMqContainer.DisposeAsync();
         _loggerFactory.Dispose();
-        output.WriteLine("Очистка завершена");
     }
 
     #endregion
@@ -131,7 +141,7 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
     }
 
-    public class TestHandler(ConsumerHostedServiceTests tests) : IMessageHandler<TestMessage>
+    public class TestHandler(PublisherConfirmsTests tests) : IMessageHandler<TestMessage>
     {
 
         #region Methods
