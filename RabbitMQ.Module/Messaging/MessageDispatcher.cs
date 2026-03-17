@@ -1,6 +1,7 @@
 namespace RabbitMQ.Module.Messaging;
 
 using System.Reflection;
+using System.Text;
 
 using Client;
 using Client.Events;
@@ -41,7 +42,7 @@ public class MessageDispatcher(
         try
         {
             var envelope = _serializer.Deserialize<MessageEnvelope>(args.Body.ToArray());
-
+            string json = Encoding.UTF8.GetString(args.Body.ToArray());
             _logger.LogDebug(
                 "Получено сообщение {MessageId} типа {MessageType}",
                 envelope.MessageId,

@@ -27,6 +27,7 @@ public class MessagingModule : IAsyncDisposable
     private ConsumerHostedService? _consumerService;
 
     private bool _disposed;
+    private readonly NewtonsoftJsonSerializer _serializer;
 
     #endregion
 
@@ -36,7 +37,7 @@ public class MessagingModule : IAsyncDisposable
 
     internal IConsumerRegistry Registry { get; }
 
-    internal IMessageSerializer Serializer { get; }
+    internal IMessageSerializer Serializer => _serializer;
 
     internal ILoggerFactory LoggerFactory { get; }
 
@@ -57,10 +58,10 @@ public class MessagingModule : IAsyncDisposable
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         ServiceProvider = serviceProvider;
 
-        ConnectionManager = new ConnectionManager(Options, LoggerFactory.CreateLogger<ConnectionManager>());
-        _channelPool = new ChannelPool(ConnectionManager, Options, LoggerFactory.CreateLogger<ChannelPool>());
+        ConnectionManager = new ConnectionManager(Options, LoggerFactory!.CreateLogger<ConnectionManager>());
+        _channelPool = new ChannelPool(ConnectionManager, Options, LoggerFactory!.CreateLogger<ChannelPool>());
 
-        Serializer = new NewtonsoftJsonSerializer();
+        _serializer = new NewtonsoftJsonSerializer();
         Registry = new ConsumerRegistry();
     }
 
@@ -125,7 +126,9 @@ public class MessagingModule : IAsyncDisposable
     public IPublisher CreatePublisher()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new Publisher(_channelPool, Serializer, LoggerFactory.CreateLogger<Publisher>());
+
+        ILogger<Publisher> logger = LoggerFactory.CreateLogger<Publisher>();
+        return new Publisher(_channelPool, _serializer, logger, Options.DeliveryControl);
     }
 
     /// <summary>

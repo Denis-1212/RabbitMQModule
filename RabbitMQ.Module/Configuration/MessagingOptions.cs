@@ -93,7 +93,11 @@ public class MessagingOptions
     /// Включить Publisher Confirms для надежной доставки сообщений
     /// Рекомендуется включать для критичных сообщений
     /// </summary>
-    public bool PublisherConfirms { get; set; } = true;
+    public bool PublisherConfirms
+    {
+        get => DeliveryControl.PublisherConfirmsEnabled;
+        set => DeliveryControl.PublisherConfirmsEnabled = value;
+    }
 
     /// <summary>
     /// Количество попыток подключения при старте
@@ -217,6 +221,11 @@ public class MessagingOptions
         }
     }
 
+    /// <summary>
+    /// Настройки контроля доставки
+    /// </summary>
+    public DeliveryControlOptions DeliveryControl { get; set; } = new();
+
     #endregion
 
     #region Methods
@@ -326,6 +335,11 @@ public class MessagingOptions
             throw new InvalidOperationException(
                 $"Ошибки валидации MessagingOptions:\n{string.Join("\n", errors.Select(e => $"  - {e}"))}");
         }
+
+        if (DeliveryControl.PublishConfirmationTimeoutMs <= 0)
+        {
+            errors.Add("PublishConfirmationTimeoutMs должен быть больше 0");
+        }
     }
 
     /// <summary>
@@ -345,7 +359,6 @@ public class MessagingOptions
             ContinuationTimeout = ContinuationTimeout,
             RequestedChannelMax = RequestedChannelMax,
             RequestedFrameMax = RequestedFrameMax
-            // DispatchConsumersAsync удален - не существует в ConnectionFactory
         };
 
         // Настройка SSL если требуется
