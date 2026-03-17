@@ -8,6 +8,14 @@ using Configuration;
 public interface IPublisher
 {
 
+    #region Properties
+
+    bool LastPublishWasConfirmed { get; }
+    TimeSpan? LastConfirmLatency { get; }
+    string? LastMessageId { get; }
+
+    #endregion
+
     #region Methods
 
     /// <summary>
