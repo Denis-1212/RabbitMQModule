@@ -38,13 +38,16 @@ public class Publisher : IPublisher
 
     #region Properties
 
+    /// <inheritdoc/>
     public bool LastPublishWasConfirmed { get; private set; }
 
+    /// <inheritdoc/>
     public TimeSpan? LastConfirmLatency =>
         _lastConfirmTime.HasValue && _lastPublishTime.HasValue
             ? _lastConfirmTime - _lastPublishTime
             : null;
 
+    /// <inheritdoc/>
     public string? LastMessageId { get; private set; }
 
     #endregion
@@ -70,7 +73,7 @@ public class Publisher : IPublisher
             .WaitAndRetryAsync(
                 3,
                 retryAttempt => TimeSpan.FromMilliseconds(100 * Math.Pow(2, retryAttempt)),
-                (exception, timeSpan, retryCount, context) =>
+                (exception, timeSpan, retryCount, _) =>
                 {
                     _logger.LogWarning(
                         exception,
@@ -84,13 +87,83 @@ public class Publisher : IPublisher
 
     #region Methods
 
+    public async Task PublishAsync(
+        MessageEnvelope envelope,
+        Action<IPublishConfiguration>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+
+        _logger.LogCritical(
+            "🔥🔥🔥 PUBLISH ENVELOPE CALLED with Id: {MessageId}, Type: {MessageType}",
+            envelope.MessageId,
+            envelope.MessageType);
+
+        var config = new PublishConfiguration();
+        configure?.Invoke(config);
+
+        // СОХРАНЯЕМ ОРИГИНАЛЬНЫЙ MESSAGEID
+        string originalMessageId = envelope.MessageId;
+
+        await _retryPolicy.ExecuteAsync(async () =>
+        {
+            IChannel channel = await _channelPool.GetAsync(cancellationToken);
+
+            try
+            {
+                BasicProperties props = config.CreateBasicProperties();
+                props.Type = envelope.MessageType;
+                props.MessageId = originalMessageId; // ✅ ИСПОЛЬЗУЕМ ОРИГИНАЛЬНЫЙ ID
+                props.Headers ??= new Dictionary<string, object?>();
+
+                // Добавляем информацию о повторной попытке
+                props.Headers["x-retry-attempt"] = envelope.RetryAttempt;
+                props.Headers["x-original-message-id"] = originalMessageId;
+
+                // Копируем остальные заголовки
+                if (envelope.Headers != null)
+                {
+                    foreach (KeyValuePair<string, object> header in envelope.Headers)
+                    {
+                        if (!header.Key.StartsWith("x-")) // Не перезаписываем наши системные
+                        {
+                            props.Headers[header.Key] = header.Value;
+                        }
+                    }
+                }
+
+                _logger.LogDebug(
+                    "Повторная публикация конверта {MessageId} (оригинал {OriginalId}) типа {MessageType}, попытка {RetryAttempt}",
+                    envelope.MessageId,
+                    originalMessageId,
+                    envelope.MessageType,
+                    envelope.RetryAttempt);
+
+                byte[] fullEnvelopeBytes = _serializer.Serialize(envelope);
+                await PublishWithConfirmsAsync(
+                    channel,
+                    config.Exchange,
+                    config.RoutingKey,
+                    config.Mandatory,
+                    props,
+                    fullEnvelopeBytes,
+                    originalMessageId, // Ждем подтверждение для оригинального ID
+                    cancellationToken);
+            }
+            finally
+            {
+                await _channelPool.ReturnAsync(channel);
+            }
+        });
+    }
+
     public async Task PublishAsync<T>(
         T message,
         Action<IPublishConfiguration>? configure = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-
+        _logger.LogCritical("🔥🔥🔥 PUBLISH<T> CALLED for type {Type}", typeof(T).Name);
         var config = new PublishConfiguration();
         configure?.Invoke(config);
 
@@ -103,7 +176,7 @@ public class Publisher : IPublisher
                 var envelope = MessageEnvelope.Create(message, _serializer, config.MessageId);
 
                 LastMessageId = envelope.MessageId;
-                _lastPublishTime = DateTime.UtcNow; //Запоминаем время отправки
+                _lastPublishTime = DateTime.UtcNow;
                 LastPublishWasConfirmed = false;
 
                 BasicProperties props = config.CreateBasicProperties();
@@ -115,91 +188,23 @@ public class Publisher : IPublisher
                     envelope.MessageId,
                     envelope.MessageType);
 
-                // Sequence number до публикации
+                // Получаем sequence number до публикации (для диагностики)
                 ulong seqBefore = await channel.GetNextPublishSequenceNumberAsync(cancellationToken);
                 _logger.LogInformation("Sequence number ДО BasicPublishAsync: {SeqNo}", seqBefore);
+                byte[] fullEnvelopeBytes = _serializer.Serialize(envelope);
+                await PublishWithConfirmsAsync(
+                    channel,
+                    config.Exchange,
+                    config.RoutingKey,
+                    config.Mandatory,
+                    props,
+                    fullEnvelopeBytes,
+                    envelope.MessageId,
+                    cancellationToken);
 
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                AsyncEventHandler<BasicAckEventArgs>? ackHandler = null;
-                AsyncEventHandler<BasicNackEventArgs>? nackHandler = null;
-
-                ackHandler = async (sender, args) =>
-                {
-                    _logger.LogInformation(
-                        "ACK получен для сообщения {MessageId}, DeliveryTag: {DeliveryTag}",
-                        envelope.MessageId,
-                        args.DeliveryTag);
-
-                    channel.BasicAcksAsync -= ackHandler;
-                    channel.BasicNacksAsync -= nackHandler;
-
-                    _lastConfirmTime = DateTime.UtcNow;
-                    LastPublishWasConfirmed = true;
-
-                    tcs.TrySetResult(true);
-                    await Task.CompletedTask;
-                };
-
-                nackHandler = async (sender, args) =>
-                {
-                    _logger.LogWarning(
-                        "❌ NACK получен для сообщения {MessageId}, DeliveryTag: {DeliveryTag}",
-                        envelope.MessageId,
-                        args.DeliveryTag);
-
-                    channel.BasicAcksAsync -= ackHandler;
-                    channel.BasicNacksAsync -= nackHandler;
-
-                    var exception = new DeliveryFailureException($"Сообщение {envelope.MessageId} не подтверждено брокером");
-                    tcs.TrySetException(exception);
-                    await Task.CompletedTask;
-                };
-
-                channel.BasicAcksAsync += ackHandler;
-                channel.BasicNacksAsync += nackHandler;
-                byte[] body = _serializer.Serialize(envelope);
-
-                try
-                {
-                    // ПУБЛИКУЕМ СООБЩЕНИЕ
-                    await channel.BasicPublishAsync(
-                        config.Exchange,
-                        config.RoutingKey,
-                        config.Mandatory,
-                        props,
-                        body,
-                        cancellationToken);
-
-                    ulong seqAfter = await channel.GetNextPublishSequenceNumberAsync(cancellationToken);
-                    _logger.LogInformation("Sequence number ПОСЛЕ BasicPublishAsync: {SeqNo}", seqAfter);
-
-                    // ЖДЕМ ПОДТВЕРЖДЕНИЕ ЕСЛИ НУЖНО
-                    if (_deliveryControl.PublisherConfirmsEnabled && config.UsePublisherConfirms)
-                    {
-                        using var cts = new CancellationTokenSource(_deliveryControl.PublishConfirmationTimeoutMs);
-                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                            cancellationToken,
-                            cts.Token);
-
-                        using CancellationTokenRegistration registration = linkedCts.Token.Register(() =>
-                        {
-                            _logger.LogError("ТАЙМАУТ! Сообщение {MessageId} не подтверждено", envelope.MessageId);
-                            tcs.TrySetException(
-                                new TimeoutException(
-                                    $"Таймаут ожидания подтверждения для сообщения {envelope.MessageId} " +
-                                    $"({_deliveryControl.PublishConfirmationTimeoutMs} мс)"));
-                        });
-
-                        await tcs.Task;
-                        _logger.LogTrace("Сообщение {MessageId} подтверждено брокером", envelope.MessageId);
-                    }
-                }
-                finally
-                {
-                    channel.BasicAcksAsync -= ackHandler;
-                    channel.BasicNacksAsync -= nackHandler;
-                }
+                // Получаем sequence number после публикации (для диагностики)
+                ulong seqAfter = await channel.GetNextPublishSequenceNumberAsync(cancellationToken);
+                _logger.LogInformation("Sequence number ПОСЛЕ BasicPublishAsync: {SeqNo}", seqAfter);
             }
             finally
             {
@@ -208,6 +213,7 @@ public class Publisher : IPublisher
         });
     }
 
+    /// <inheritdoc/>
     public void ResetStats()
     {
         LastPublishWasConfirmed = false;
@@ -216,8 +222,16 @@ public class Publisher : IPublisher
         LastMessageId = null;
     }
 
-    private async Task WaitForConfirmationAsync(
+    /// <summary>
+    /// Публикует сообщение с ожиданием подтверждения от брокера
+    /// </summary>
+    private async Task PublishWithConfirmsAsync(
         IChannel channel,
+        string exchange,
+        string routingKey,
+        bool mandatory,
+        BasicProperties properties,
+        byte[] body,
         string messageId,
         CancellationToken cancellationToken)
     {
@@ -226,51 +240,30 @@ public class Publisher : IPublisher
         AsyncEventHandler<BasicAckEventArgs>? ackHandler = null;
         AsyncEventHandler<BasicNackEventArgs>? nackHandler = null;
 
-        ackHandler = async (_, args) =>
+        ackHandler = async (sender, args) =>
         {
-            _logger.LogInformation(
-                "ACK получен для сообщения {MessageId}, DeliveryTag: {DeliveryTag}",
-                messageId,
-                args.DeliveryTag);
+            _logger.LogDebug("Получено подтверждение (ACK) для сообщения {MessageId}", messageId);
 
-            try
-            {
-                channel.BasicAcksAsync -= ackHandler;
-                channel.BasicNacksAsync -= nackHandler;
-                tcs.TrySetResult(true);
-                await Task.CompletedTask;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка в обработчике подтверждения");
-            }
+            channel.BasicAcksAsync -= ackHandler;
+            channel.BasicNacksAsync -= nackHandler;
+
+            _lastConfirmTime = DateTime.UtcNow;
+            LastPublishWasConfirmed = true;
+
+            tcs.TrySetResult(true);
+            await Task.CompletedTask;
         };
 
-        nackHandler = async (_, args) =>
+        nackHandler = async (sender, args) =>
         {
-            _logger.LogWarning(
-                "❌ NACK получен для сообщения {MessageId}, DeliveryTag: {DeliveryTag}",
-                messageId,
-                args.DeliveryTag);
+            _logger.LogWarning("Получен отказ (NACK) для сообщения {MessageId}", messageId);
 
-            try
-            {
-                channel.BasicAcksAsync -= ackHandler;
-                channel.BasicNacksAsync -= nackHandler;
+            channel.BasicAcksAsync -= ackHandler;
+            channel.BasicNacksAsync -= nackHandler;
 
-                var exception = new DeliveryFailureException($"Сообщение {messageId} не подтверждено брокером")
-                {
-                    MessageId = messageId,
-                    Reason = $"DeliveryTag: {args.DeliveryTag}, Multiple: {args.Multiple}"
-                };
-
-                tcs.TrySetException(exception);
-                await Task.CompletedTask;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Ошибка в обработчике отсутствия подтверждения");
-            }
+            var exception = new DeliveryFailureException($"Сообщение {messageId} не подтверждено брокером");
+            tcs.TrySetException(exception);
+            await Task.CompletedTask;
         };
 
         channel.BasicAcksAsync += ackHandler;
@@ -278,31 +271,50 @@ public class Publisher : IPublisher
 
         try
         {
-            using var cts = new CancellationTokenSource(_deliveryControl.PublishConfirmationTimeoutMs);
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                cts.Token);
+            _logger.LogTrace(
+                "Отправка сообщения {MessageId} в exchange '{Exchange}' с routing key '{RoutingKey}'",
+                messageId,
+                exchange,
+                routingKey);
 
-            using CancellationTokenRegistration registration = linkedCts.Token.Register(async () =>
+            await channel.BasicPublishAsync(
+                exchange,
+                routingKey,
+                mandatory,
+                properties,
+                body,
+                cancellationToken);
+
+            if (_deliveryControl.PublisherConfirmsEnabled)
             {
-                // ДИАГНОСТИКА 2: Проверяем счетчик после таймаута
-                ulong seqNoAfter = await channel.GetNextPublishSequenceNumberAsync(cancellationToken);
-                _logger.LogError(
-                    "ТАЙМАУТ! Сообщение {MessageId} не подтверждено. " +
-                    "Sequence number ПОСЛЕ: {SeqNo}",
+                _logger.LogDebug(
+                    "Ожидание подтверждения для сообщения {MessageId} (таймаут: {Timeout} мс)",
                     messageId,
-                    seqNoAfter); // БЫЛО: после таймаута: 
+                    _deliveryControl.PublishConfirmationTimeoutMs);
 
-                channel.BasicAcksAsync -= ackHandler;
-                channel.BasicNacksAsync -= nackHandler;
+                using var cts = new CancellationTokenSource(_deliveryControl.PublishConfirmationTimeoutMs);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    cts.Token);
 
-                var timeoutException = new TimeoutException(
-                    $"Таймаут ожидания подтверждения для сообщения {messageId} ({_deliveryControl.PublishConfirmationTimeoutMs} мс)");
+                using CancellationTokenRegistration registration = linkedCts.Token.Register(() =>
+                {
+                    var timeoutException = new TimeoutException(
+                        $"Таймаут ожидания подтверждения для сообщения {messageId} " +
+                        $"({_deliveryControl.PublishConfirmationTimeoutMs} мс)");
 
-                tcs.TrySetException(timeoutException);
-            });
+                    _logger.LogError(timeoutException, "Таймаут подтверждения для сообщения {MessageId}", messageId);
 
-            await tcs.Task;
+                    tcs.TrySetException(timeoutException);
+                });
+
+                await tcs.Task;
+                _logger.LogDebug("Сообщение {MessageId} подтверждено брокером", messageId);
+            }
+            else
+            {
+                _logger.LogTrace("Сообщение {MessageId} опубликовано без ожидания подтверждения", messageId);
+            }
         }
         finally
         {

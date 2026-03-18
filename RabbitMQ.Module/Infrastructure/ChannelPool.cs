@@ -8,18 +8,6 @@ using Configuration;
 
 using Microsoft.Extensions.Logging;
 
-public interface IChannelPool : IAsyncDisposable
-{
-
-    #region Methods
-
-    Task<IChannel> GetAsync(CancellationToken cancellationToken = default);
-    Task ReturnAsync(IChannel channel);
-
-    #endregion
-
-}
-
 public class ChannelPool : IChannelPool
 {
 
@@ -107,13 +95,6 @@ public class ChannelPool : IChannelPool
                                       channelOptions,
                                       cts.Token);
 
-            // Публикуем тестовое сообщение в несуществующую очередь
-            await newChannel.BasicPublishAsync(
-                "",
-                "test-dummy-" + Guid.NewGuid(),
-                Array.Empty<byte>(),
-                cts.Token);
-
             await newChannel.BasicQosAsync(
                 0,
                 1,
@@ -135,98 +116,6 @@ public class ChannelPool : IChannelPool
             throw;
         }
     }
-    // public async Task<IChannel> GetAsync(CancellationToken cancellationToken = default)
-    // {
-    //     ObjectDisposedException.ThrowIf(_disposed, this);
-    //
-    //     using var cts = CancellationTokenSource.CreateLinkedTokenSource(
-    //         cancellationToken,
-    //         _disposeCts.Token);
-    //
-    //     try
-    //     {
-    //         await _semaphore.WaitAsync(cts.Token);
-    //     }
-    //     catch (OperationCanceledException)
-    //     {
-    //         if (_disposeCts.Token.IsCancellationRequested)
-    //         {
-    //             throw new ObjectDisposedException(nameof(ChannelPool));
-    //         }
-    //
-    //         throw;
-    //     }
-    //
-    //     while (_channels.TryDequeue(out IChannel? channel))
-    //     {
-    //         if (channel.IsOpen)
-    //         {
-    //             _logger.LogTrace("Канал {ChannelNumber} получен из пула", channel.ChannelNumber);
-    //             return channel;
-    //         }
-    //
-    //         await channel.DisposeAsync();
-    //         Interlocked.Decrement(ref _channelCount);
-    //         _logger.LogTrace("Закрытый канал удален из пула");
-    //     }
-    //
-    //     try
-    //     {
-    //         IConnection connection = await _connectionManager.GetConnectionAsync(cts.Token);
-    //
-    //         DeliveryControlOptions deliveryControl = _options.DeliveryControl;
-    //
-    //         _logger.LogInformation("Создание канала с настройками:");
-    //         _logger.LogInformation("  PublisherConfirmsEnabled: {0}", deliveryControl.PublisherConfirmsEnabled);
-    //         _logger.LogInformation("  PublisherConfirmationTrackingEnabled: {0}", deliveryControl.PublisherConfirmationTrackingEnabled);
-    //
-    //         // СОЗДАЕМ RateLimiter ЕСЛИ НУЖНО
-    //         RateLimiter? rateLimiter = deliveryControl.OutstandingPublisherConfirmationsRateLimiter;
-    //
-    //         if (rateLimiter == null && deliveryControl.MaxOutstandingPublisherConfirmations > 0)
-    //         {
-    //             // Используем встроенный ConcurrencyLimiter из .NET
-    //             rateLimiter = new ConcurrencyLimiter(
-    //                 new ConcurrencyLimiterOptions
-    //                 {
-    //                     PermitLimit = deliveryControl.MaxOutstandingPublisherConfirmations,
-    //                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-    //                     QueueLimit = 0 // Не накапливаем в очереди
-    //                 });
-    //         }
-    //
-    //         var channelOptions = new CreateChannelOptions(
-    //             deliveryControl.PublisherConfirmsEnabled,
-    //             deliveryControl.PublisherConfirmationTrackingEnabled,
-    //             rateLimiter, // RateLimiter, не интерфейс
-    //             null
-    //         );
-    //
-    //         IChannel newChannel = await connection.CreateChannelAsync(
-    //                                   channelOptions,
-    //                                   cts.Token);
-    //
-    //         await newChannel.BasicQosAsync(
-    //             0,
-    //             1,
-    //             false,
-    //             cts.Token);
-    //
-    //         int channelNumber = Interlocked.Increment(ref _channelCount);
-    //         _logger.LogDebug(
-    //             "Создан новый канал {ChannelNumber}. Всего каналов: {Total}. Режим подтверждений: {ConfirmMode}",
-    //             newChannel.ChannelNumber,
-    //             channelNumber,
-    //             _options.DeliveryControl.PublisherConfirmsEnabled);
-    //
-    //         return newChannel;
-    //     }
-    //     catch
-    //     {
-    //         _semaphore.Release();
-    //         throw;
-    //     }
-    // }
 
     public async Task ReturnAsync(IChannel channel)
     {

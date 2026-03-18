@@ -4,6 +4,8 @@ using Configuration;
 
 using Contracts;
 
+using DeliveryControl;
+
 using Messaging;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -51,15 +53,26 @@ public static class RabbitMQModuleExtensions
             return module.CreatePublisher();
         });
 
+        // Регистрируем метрики
+        services.AddSingleton<IDeliveryMetrics>(serviceProvider =>
+        {
+            var logger = serviceProvider.GetRequiredService<ILogger<DefaultDeliveryMetrics>>();
+            return new DefaultDeliveryMetrics(logger);
+        });
+
         // Регистрируем ConsumerHostedService
         services.AddHostedService(serviceProvider =>
         {
             var module = serviceProvider.GetRequiredService<MessagingModule>();
+            var metrics = serviceProvider.GetRequiredService<IDeliveryMetrics>();
+            var publisher = serviceProvider.GetRequiredService<IPublisher>();
 
             var dispatcher = new MessageDispatcher(
                 module.Registry,
                 module.Serializer,
                 module.LoggerFactory.CreateLogger<MessageDispatcher>(),
+                module.Options,
+                metrics,
                 module.ServiceProvider);
 
             return new ConsumerHostedService(
