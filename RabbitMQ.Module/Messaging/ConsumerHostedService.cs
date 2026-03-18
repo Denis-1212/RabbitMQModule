@@ -152,7 +152,6 @@ public class ConsumerHostedService(
 
             var consumer = new AsyncEventingBasicConsumer(channel);
 
-            // Создаем делегат правильного типа AsyncEventHandler<BasicDeliverEventArgs>
             AsyncEventHandler<BasicDeliverEventArgs> messageHandler = async (sender, args) =>
             {
                 try
@@ -189,7 +188,7 @@ public class ConsumerHostedService(
                 QueueName = queueName,
                 ConsumerTag = consumerTag,
                 Registration = registration,
-                MessageHandler = messageHandler // Сохраняем делегат правильного типа
+                MessageHandler = messageHandler
             };
 
             _consumers.Add(consumerInfo);
@@ -224,7 +223,6 @@ public class ConsumerHostedService(
 
         Dictionary<string, object>? arguments = options.CreateQueueArguments();
 
-        // Конвертируем Dictionary<string, object> в IDictionary<string, object?>?
         IDictionary<string, object?>? queueArgs = null;
 
         if (arguments != null)
@@ -239,7 +237,7 @@ public class ConsumerHostedService(
                                            options.Durable,
                                            options.Exclusive,
                                            options.AutoDelete,
-                                           queueArgs, // Теперь правильный тип
+                                           queueArgs,
                                            cancellationToken: cancellationToken);
 
         if (!string.IsNullOrEmpty(options.ExchangeName))
@@ -353,7 +351,7 @@ public class ConsumerHostedService(
         public string QueueName { get; init; } = string.Empty;
         public string ConsumerTag { get; init; } = string.Empty;
         public ConsumerRegistration? Registration { get; init; }
-        public AsyncEventHandler<BasicDeliverEventArgs>? MessageHandler { get; init; } // Правильный тип
+        public AsyncEventHandler<BasicDeliverEventArgs>? MessageHandler { get; init; }
         public bool IsActive => Channel?.IsOpen == true;
 
         #endregion

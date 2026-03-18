@@ -4,6 +4,8 @@ using Configuration;
 
 using Contracts;
 
+using DeliveryControl;
+
 using Infrastructure;
 using Infrastructure.Serialization;
 
@@ -144,15 +146,8 @@ public class MessagingModule : IAsyncDisposable
             return;
         }
 
-        var dispatcher = new MessageDispatcher(Registry, Serializer, LoggerFactory.CreateLogger<MessageDispatcher>(), ServiceProvider);
-
-        _consumerService = new ConsumerHostedService(
-            ConnectionManager,
-            Registry,
-            dispatcher,
-            Options,
-            LoggerFactory.CreateLogger<ConsumerHostedService>());
-
+        MessageDispatcher dispatcher = CreateDispatcher();
+        _consumerService = CreateConsumerHostedService(dispatcher);
         await _consumerService.StartAsync(cancellationToken);
     }
 
@@ -178,13 +173,39 @@ public class MessagingModule : IAsyncDisposable
     /// Останавливает всех потребителей
     /// </summary>
     /// <param name = "cancellationToken">Токен отмены</param>
-    internal async Task StopConsumersAsync(CancellationToken cancellationToken = default)
+    public async Task StopConsumersAsync(CancellationToken cancellationToken = default)
     {
         if (_consumerService != null)
         {
             await _consumerService.StopAsync(cancellationToken);
             _consumerService = null;
         }
+    }
+
+    private ConsumerHostedService CreateConsumerHostedService(MessageDispatcher dispatcher)
+    {
+        return new ConsumerHostedService(
+            ConnectionManager,
+            Registry,
+            dispatcher,
+            Options,
+            LoggerFactory.CreateLogger<ConsumerHostedService>());
+    }
+
+    private MessageDispatcher CreateDispatcher()
+    {
+        ILogger<MessageDispatcher> logger = LoggerFactory.CreateLogger<MessageDispatcher>();
+        ILogger<DefaultDeliveryMetrics> metricsLogger = LoggerFactory.CreateLogger<DefaultDeliveryMetrics>();
+        var metrics = new DefaultDeliveryMetrics(metricsLogger);
+        IPublisher publisher = CreatePublisher(); // Для повторной публикации при retry
+
+        return new MessageDispatcher(
+            Registry,
+            _serializer,
+            logger,
+            Options,
+            metrics,
+            ServiceProvider);
     }
 
     #endregion
