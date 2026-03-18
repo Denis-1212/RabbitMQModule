@@ -35,6 +35,11 @@ public class MessageEnvelope
     /// </summary>
     public Dictionary<string, object>? Headers { get; set; }
 
+    /// <summary>
+    /// Количество попыток обработки
+    /// </summary>
+    public int RetryAttempt { get; set; }
+
     #endregion
 
     #region Methods
@@ -46,7 +51,8 @@ public class MessageEnvelope
             MessageType = typeof(T).AssemblyQualifiedName
                           ?? throw new InvalidOperationException("Не удалось получить AssemblyQualifiedName для типа " + typeof(T).FullName),
             MessageId = messageId ?? Guid.NewGuid().ToString(),
-            Timestamp = DateTime.UtcNow
+            Timestamp = DateTime.UtcNow,
+            RetryAttempt = 0
         };
 
         envelope.Payload = serializer.Serialize(message);

@@ -136,11 +136,11 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
         #region Methods
 
-        public Task HandleAsync(TestMessage message, IMessageContext context, CancellationToken cancellationToken)
+        public async Task HandleAsync(TestMessage message, IMessageContext context, CancellationToken cancellationToken)
         {
             tests._receivedMessages.Add(message);
             tests._messageSignal.Release();
-            return Task.CompletedTask;
+            await context.AckAsync(cancellationToken);
         }
 
         #endregion

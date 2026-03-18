@@ -48,7 +48,7 @@ public class NewtonsoftJsonSerializer : IMessageSerializer
         return JsonConvert.DeserializeObject<T>(json, _settings)!;
     }
 
-    public object Deserialize(byte[] data, Type type)
+    public object Deserialize(byte[] data, Type? type)
     {
         string json = Encoding.UTF8.GetString(data);
         return JsonConvert.DeserializeObject(json, type, _settings)!;

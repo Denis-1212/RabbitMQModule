@@ -7,7 +7,7 @@ public interface IMessageSerializer
 
     byte[] Serialize<T>(T obj);
     T Deserialize<T>(byte[] data);
-    object Deserialize(byte[] data, Type type);
+    object Deserialize(byte[] data, Type? type);
 
     #endregion
 
