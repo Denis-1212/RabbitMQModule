@@ -163,7 +163,7 @@ public class Publisher : IPublisher
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        _logger.LogCritical("🔥🔥🔥 PUBLISH<T> CALLED for type {Type}", typeof(T).Name);
+        // _logger.LogTrace("PUBLISH<T> CALLED for type {Type}", typeof(T).Name);
         var config = new PublishConfiguration();
         configure?.Invoke(config);
 
