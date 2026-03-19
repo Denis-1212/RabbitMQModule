@@ -1,7 +1,6 @@
 namespace RabbitMQ.Module.Messaging;
 
 using System.Reflection;
-using System.Text;
 
 using Client;
 using Client.Events;
@@ -49,9 +48,9 @@ public class MessageDispatcher(
         MessageEnvelope? envelope = null;
         string? messageType = null;
 
-        _logger.LogCritical(
-            "📥📥📥 RAW MESSAGE RECEIVED: {Body}",
-            Encoding.UTF8.GetString(args.Body.ToArray()));
+        // _logger.LogTrace(
+        //     "📥📥📥 RAW MESSAGE RECEIVED: {Body}",
+        //     Encoding.UTF8.GetString(args.Body.ToArray()));
 
         try
         {
