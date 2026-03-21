@@ -212,6 +212,10 @@ public interface IDeliveryMetrics
 
    - .NET 8 SDK или выше
    - RabbitMQ 3.12+ (локально или в Docker)
+```
+# Запуск RabbitMQ через Docker
+docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.12-management
+```
 
 ## Тестирование
 
