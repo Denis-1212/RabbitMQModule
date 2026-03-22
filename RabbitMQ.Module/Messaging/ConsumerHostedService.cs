@@ -154,13 +154,17 @@ public class ConsumerHostedService(
 
             AsyncEventHandler<BasicDeliverEventArgs> messageHandler = async (sender, args) =>
             {
+                _logger.LogDebug("📥 ПОЛУЧЕНО сообщение с delivery tag: {DeliveryTag}", args.DeliveryTag);
+                _logger.LogDebug("📊 Состояние канала при получении: IsOpen={IsOpen}", channel.IsOpen);
+
                 try
                 {
                     await _dispatcher.DispatchAsync(channel, args, cancellationToken);
+                    _logger.LogDebug("✅ Обработка завершена для delivery tag: {DeliveryTag}", args.DeliveryTag);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Необработанная ошибка при обработке сообщения");
+                    _logger.LogError(ex, "❌ Ошибка при обработке сообщения с delivery tag: {DeliveryTag}", args.DeliveryTag);
 
                     try
                     {

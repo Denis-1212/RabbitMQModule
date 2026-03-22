@@ -4,12 +4,15 @@ using Client;
 
 using Contracts;
 
+using Microsoft.Extensions.Logging;
+
 internal class MessageContext(
     string messageId,
     string routingKey,
     DateTime timestamp,
     ulong deliveryTag,
     IChannel channel,
+    ILogger<MessageDispatcher> logger,
     CancellationToken cancellationToken)
     : IMessageContext
 {
@@ -34,6 +37,19 @@ internal class MessageContext(
     {
         if (_isAcked)
         {
+            return;
+        }
+
+        logger.LogDebug(
+            "📊 Состояние канала перед Ack: IsOpen={IsOpen}, IsClosed={IsClosed}",
+            channel.IsOpen,
+            channel.IsClosed);
+
+        logger.LogDebug("🔔 MessageContext.AckAsync вызван для delivery tag: {DeliveryTag}", deliveryTag);
+
+        if (!channel.IsOpen)
+        {
+            logger.LogWarning("⚠️ Канал закрыт, не могу подтвердить сообщение {DeliveryTag}", deliveryTag);
             return;
         }
 
