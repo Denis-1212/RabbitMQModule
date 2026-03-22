@@ -27,6 +27,16 @@ public class DefaultDeliveryMetrics : IDeliveryMetrics
 
     #region Methods
 
+    public void MessageDeduplicated(string messageType)
+    {
+        _logger.LogInformation("Metric|Deduplicated|{Type}", messageType);
+    }
+
+    public void DeduplicationStoreError(string messageType, string error)
+    {
+        _logger.LogError("Metric|DeduplicationError|{Type}|{Error}", messageType, error);
+    }
+
     public void MessageProcessed(string messageType, TimeSpan duration, bool success)
     {
         _logger.LogInformation(
