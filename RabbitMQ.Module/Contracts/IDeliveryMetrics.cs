@@ -33,6 +33,16 @@ public interface IDeliveryMetrics
     /// </summary>
     void TransactionRolledBack(string messageType);
 
+    /// <summary>
+    /// Сообщение пропущено как дубликат
+    /// </summary>
+    void MessageDeduplicated(string messageType);
+
+    /// <summary>
+    /// Ошибка в хранилище дедубликации
+    /// </summary>
+    void DeduplicationStoreError(string messageType, string error);
+
     #endregion
 
 }

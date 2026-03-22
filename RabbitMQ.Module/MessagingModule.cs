@@ -4,6 +4,8 @@ using Configuration;
 
 using Contracts;
 
+using Deduplication;
+
 using DeliveryControl;
 
 using Infrastructure;
@@ -11,10 +13,13 @@ using Infrastructure.Serialization;
 
 using Messaging;
 
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Registration;
+
+using StackExchange.Redis;
 
 /// <summary>
 /// Основной модуль для работы с RabbitMQ
@@ -30,6 +35,8 @@ public class MessagingModule : IAsyncDisposable
 
     private bool _disposed;
     private readonly NewtonsoftJsonSerializer _serializer;
+    private IDeduplicationStore? _deduplicationStore;
+    private readonly ILogger<MessagingModule> _logger;
 
     #endregion
 
@@ -60,11 +67,12 @@ public class MessagingModule : IAsyncDisposable
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         ServiceProvider = serviceProvider;
 
-        ConnectionManager = new ConnectionManager(Options, LoggerFactory!.CreateLogger<ConnectionManager>());
-        _channelPool = new ChannelPool(ConnectionManager, Options, LoggerFactory!.CreateLogger<ChannelPool>());
+        ConnectionManager = new ConnectionManager(Options, LoggerFactory.CreateLogger<ConnectionManager>());
+        _channelPool = new ChannelPool(ConnectionManager, Options, LoggerFactory.CreateLogger<ChannelPool>());
 
         _serializer = new NewtonsoftJsonSerializer();
         Registry = new ConsumerRegistry();
+        _logger = LoggerFactory.CreateLogger<MessagingModule>();
     }
 
     #endregion
@@ -146,6 +154,7 @@ public class MessagingModule : IAsyncDisposable
             return;
         }
 
+        await InitializeDeduplicationStoreAsync();
         MessageDispatcher dispatcher = CreateDispatcher();
         _consumerService = CreateConsumerHostedService(dispatcher);
         await _consumerService.StartAsync(cancellationToken);
@@ -182,6 +191,83 @@ public class MessagingModule : IAsyncDisposable
         }
     }
 
+    private async Task InitializeDeduplicationStoreAsync()
+    {
+        if (Options.Deduplication.StoreType == DeduplicationStoreType.None)
+        {
+            _deduplicationStore = null;
+            return;
+        }
+
+        ILogger<DefaultDeliveryMetrics> metricsLogger = LoggerFactory.CreateLogger<DefaultDeliveryMetrics>();
+        var metrics = new DefaultDeliveryMetrics(metricsLogger);
+
+        if (Options.Deduplication.StoreType == DeduplicationStoreType.InMemory)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions());
+            _deduplicationStore = new InMemoryDeduplicationStore(
+                cache,
+                LoggerFactory.CreateLogger<InMemoryDeduplicationStore>(),
+                Options.Deduplication,
+                metrics);
+
+            return;
+        }
+
+        if (Options.Deduplication.StoreType == DeduplicationStoreType.Redis)
+        {
+            try
+            {
+                ConnectionMultiplexer redis = await ConnectionMultiplexer.ConnectAsync(Options.Deduplication.RedisConnectionString!);
+
+                // Создаем fallback store если включено
+                IDeduplicationStore? fallback = null;
+
+                if (Options.Deduplication.EnableRedisFallback)
+                {
+                    var cache = new MemoryCache(new MemoryCacheOptions());
+                    fallback = new InMemoryDeduplicationStore(
+                        cache,
+                        LoggerFactory.CreateLogger<InMemoryDeduplicationStore>(),
+                        Options.Deduplication,
+                        metrics);
+
+                    _logger.LogInformation("Redis fallback to In-Memory enabled");
+                }
+
+                _deduplicationStore = new RedisDeduplicationStore(
+                    redis,
+                    LoggerFactory.CreateLogger<RedisDeduplicationStore>(),
+                    Options.Deduplication,
+                    fallback,
+                    metrics);
+
+                _logger.LogInformation("Redis deduplication store initialized");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize Redis deduplication store");
+
+                if (Options.Deduplication.EnableRedisFallback)
+                {
+                    _logger.LogWarning("Falling back to In-Memory deduplication store");
+                    var cache = new MemoryCache(new MemoryCacheOptions());
+                    _deduplicationStore = new InMemoryDeduplicationStore(
+                        cache,
+                        LoggerFactory.CreateLogger<InMemoryDeduplicationStore>(),
+                        Options.Deduplication,
+                        metrics);
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
+        await Task.CompletedTask;
+    }
+
     private ConsumerHostedService CreateConsumerHostedService(MessageDispatcher dispatcher)
     {
         return new ConsumerHostedService(
@@ -197,7 +283,7 @@ public class MessagingModule : IAsyncDisposable
         ILogger<MessageDispatcher> logger = LoggerFactory.CreateLogger<MessageDispatcher>();
         ILogger<DefaultDeliveryMetrics> metricsLogger = LoggerFactory.CreateLogger<DefaultDeliveryMetrics>();
         var metrics = new DefaultDeliveryMetrics(metricsLogger);
-        IPublisher publisher = CreatePublisher(); // Для повторной публикации при retry
+        // IPublisher publisher = CreatePublisher(); // Для повторной публикации при retry
 
         return new MessageDispatcher(
             Registry,
@@ -205,9 +291,12 @@ public class MessagingModule : IAsyncDisposable
             logger,
             Options,
             metrics,
-            ServiceProvider);
+            ServiceProvider,
+            _deduplicationStore,
+            Options.Deduplication);
     }
 
     #endregion
 
+    // private readonly ILogger<MessagingModule> _logger;
 }

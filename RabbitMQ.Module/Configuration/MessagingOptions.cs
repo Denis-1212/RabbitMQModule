@@ -6,6 +6,8 @@ using System.Text.RegularExpressions;
 
 using Client;
 
+using Deduplication;
+
 /// <summary>
 /// Настройки подключения к RabbitMQ
 /// </summary>
@@ -226,6 +228,11 @@ public class MessagingOptions
     /// </summary>
     public DeliveryControlOptions DeliveryControl { get; set; } = new();
 
+    /// <summary>
+    /// Настройки дедубликации сообщений
+    /// </summary>
+    public DeduplicationOptions Deduplication { get; set; } = new();
+
     #endregion
 
     #region Methods
@@ -340,6 +347,8 @@ public class MessagingOptions
         {
             errors.Add("PublishConfirmationTimeoutMs должен быть больше 0");
         }
+
+        Deduplication.Validate();
     }
 
     /// <summary>
