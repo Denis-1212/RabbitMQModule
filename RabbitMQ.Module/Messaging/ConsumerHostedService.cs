@@ -61,6 +61,7 @@ public class ConsumerHostedService(
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _stopCts.Token);
         CancellationToken combinedToken = cts.Token;
+        _ = Task.Run(() => MonitorConsumersAsync(combinedToken), combinedToken);
 
         while (!combinedToken.IsCancellationRequested)
         {
@@ -86,9 +87,26 @@ public class ConsumerHostedService(
             {
                 _logger.LogError(ex, "Критическая ошибка в сервисе потребителей, перезапуск через 5 секунд");
                 await Task.Delay(TimeSpan.FromSeconds(5), combinedToken);
-                await StopConsumersAsync();
+                await RestartConsumersAsync(combinedToken);
             }
         }
+    }
+
+    private async Task RestartConsumersAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogWarning("Перезапуск потребителей...");
+
+        await StopConsumersAsync();
+
+        // Сбрасываем флаг, чтобы EnsureConsumersAsync пересоздал всё
+        _isStarted = false;
+
+        // Небольшая задержка перед перезапуском
+        await Task.Delay(1000, cancellationToken);
+
+        await EnsureConsumersAsync(cancellationToken);
+
+        _logger.LogInformation("Потребители перезапущены");
     }
 
     private async Task EnsureConsumersAsync(CancellationToken cancellationToken)
@@ -144,10 +162,16 @@ public class ConsumerHostedService(
 
             channel.ChannelShutdownAsync += (sender, args) =>
             {
-                _logger.LogWarning(
-                    "КАНАЛ {ChannelNumber} ЗАКРЫТ! Причина: {Reason}",
-                    channel.ChannelNumber,
-                    args.ReplyText);
+                if (args.Initiator != ShutdownInitiator.Application)
+                {
+                    _logger.LogWarning(
+                        "Канал {ChannelNumber} закрыт неожиданно: {Reason}",
+                        channel.ChannelNumber,
+                        args.ReplyText);
+
+                    // Запускаем перезапуск всех потребителей
+                    _ = Task.Run(async () => await RestartConsumersAsync(CancellationToken.None));
+                }
 
                 return Task.CompletedTask;
             };
@@ -164,17 +188,17 @@ public class ConsumerHostedService(
 
             AsyncEventHandler<BasicDeliverEventArgs> messageHandler = async (sender, args) =>
             {
-                _logger.LogDebug("📥 ПОЛУЧЕНО сообщение с delivery tag: {DeliveryTag}", args.DeliveryTag);
-                _logger.LogDebug("📊 Состояние канала при получении: IsOpen={IsOpen}", channel.IsOpen);
+                _logger.LogDebug("ПОЛУЧЕНО сообщение с delivery tag: {DeliveryTag}", args.DeliveryTag);
+                _logger.LogDebug("Состояние канала при получении: IsOpen={IsOpen}", channel.IsOpen);
 
                 try
                 {
                     await _dispatcher.DispatchAsync(channel, args, cancellationToken);
-                    _logger.LogDebug("✅ Обработка завершена для delivery tag: {DeliveryTag}", args.DeliveryTag);
+                    _logger.LogDebug("Обработка завершена для delivery tag: {DeliveryTag}", args.DeliveryTag);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "❌ Ошибка при обработке сообщения с delivery tag: {DeliveryTag}", args.DeliveryTag);
+                    _logger.LogError(ex, "Ошибка при обработке сообщения с delivery tag: {DeliveryTag}", args.DeliveryTag);
 
                     try
                     {
@@ -221,6 +245,20 @@ public class ConsumerHostedService(
                 registration.MessageType.Name);
 
             throw;
+        }
+    }
+
+    private async Task MonitorConsumersAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+
+            if (_consumers.Any() && _consumers.All(c => !c.IsActive))
+            {
+                _logger.LogWarning("Все потребители неактивны, инициируем перезапуск");
+                await RestartConsumersAsync(cancellationToken);
+            }
         }
     }
 
