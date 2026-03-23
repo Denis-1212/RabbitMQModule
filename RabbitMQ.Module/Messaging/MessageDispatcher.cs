@@ -54,6 +54,12 @@ public class MessageDispatcher(
     {
         ulong deliveryTag = args.DeliveryTag;
         DateTime startTime = DateTime.UtcNow;
+        int channelNumber = channel.ChannelNumber;
+
+        _logger.LogDebug(
+            "НАЧАЛО обработки сообщения: delivery tag={DeliveryTag}, канал={ChannelNumber}",
+            deliveryTag,
+            channelNumber);
 
         try
         {
@@ -90,6 +96,11 @@ public class MessageDispatcher(
                 deliveryTag,
                 startTime,
                 cancellationToken);
+
+            _logger.LogDebug(
+                "КОНЕЦ обработки сообщения: delivery tag={DeliveryTag}, канал={ChannelNumber}",
+                deliveryTag,
+                channelNumber);
         }
         catch (Exception ex)
         {
@@ -247,7 +258,16 @@ public class MessageDispatcher(
         }
         else
         {
+            // await channel.BasicAckAsync(deliveryTag, false, cancellationToken);
+
+            _logger.LogDebug(
+                "ОТПРАВКА Ack для delivery tag: {DeliveryTag}, канал: {ChannelNumber}",
+                deliveryTag,
+                channel.ChannelNumber);
+
             await channel.BasicAckAsync(deliveryTag, false, cancellationToken);
+
+            _logger.LogDebug("✅ Ack ОТПРАВЛЕН для delivery tag: {DeliveryTag}", deliveryTag);
         }
 
         TimeSpan duration = DateTime.UtcNow - startTime;
