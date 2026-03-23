@@ -6,40 +6,15 @@ using Module.Contracts;
 
 using Services;
 
-public class WebAppMessageHandler : IMessageHandler<GenericMessage>
+public class WebAppMessageHandler(ILogger<WebAppMessageHandler> logger, IMessageStore messageStore) : IMessageHandler<GenericMessage>
 {
-
-    #region Fields
-
-    private readonly ILogger<WebAppMessageHandler> _logger;
-    private readonly IMessageStore _messageStore;
-
-    #endregion
-
-    #region Constructors
-
-    public WebAppMessageHandler(ILogger<WebAppMessageHandler> logger, IMessageStore messageStore)
-    {
-        _logger = logger;
-        _messageStore = messageStore;
-    }
-
-    #endregion
 
     #region Methods
 
-    public async Task HandleAsync(GenericMessage message, IMessageContext context, CancellationToken cancellationToken)
+    public Task HandleAsync(GenericMessage message, IMessageContext context, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("🔥 ОБРАБОТЧИК ВЫЗВАН! MessageId: {MessageId}", message.Id);
-
         try
         {
-            await Task.Delay(50, cancellationToken);
-
-            _logger.LogInformation("📤 Ack для сообщения {MessageId}", message.Id);
-            await context.AckAsync(cancellationToken);
-            _logger.LogInformation("✅ Ack выполнен для сообщения {MessageId}", message.Id);
-
             // Сохраняем в хранилище
             var processedMessage = new ProcessedMessage
             {
@@ -51,15 +26,17 @@ public class WebAppMessageHandler : IMessageHandler<GenericMessage>
                 Success = true
             };
 
-            _messageStore.Add(processedMessage);
+            messageStore.Add(processedMessage);
 
-            _logger.LogInformation("✅ Сообщение {MessageId} обработано", message.Id);
+            logger.LogInformation("HandleAsync : Сообщение {MessageId} обработано", message.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Ошибка обработки сообщения {MessageId}", message.Id);
+            logger.LogError(ex, "Ошибка обработки сообщения {MessageId}", message.Id);
             throw;
         }
+
+        return Task.CompletedTask;
     }
 
     #endregion

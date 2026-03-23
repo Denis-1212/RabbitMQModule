@@ -25,7 +25,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddSingleton<IMessageStore, InMemoryMessageStore>();
 
 // Регистрируем сервис отправки сообщений
-builder.Services.AddScoped<IMessageService, MessageService>(); // ✅ Добавляем
+builder.Services.AddScoped<IMessageService, MessageService>();
 
 // Регистрируем RabbitMQ модуль
 builder.Services.AddRabbitMQModuleWithHandlers(builder.Configuration);
@@ -51,9 +51,6 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation("🚀 Web приложение запущено");
-logger.LogInformation("📊 Swagger UI: http://localhost:5000/swagger");
-logger.LogInformation("📨 POST /api/messages - отправить сообщение");
-logger.LogInformation("📋 GET /api/messages - история сообщений");
+logger.LogInformation("Web приложение запущено");
 
-app.Run();
+await app.RunAsync();

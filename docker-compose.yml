@@ -1,0 +1,45 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq-test
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile  # ← Dockerfile в корне
+    container_name: rabbitmq-webapp
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - RabbitMQ__ConnectionString=amqp://guest:guest@rabbitmq:5672/
+      - RabbitMQ__QueueName=webapp.messages
+      - RabbitMQ__RoutingKey=webapp.messages
+      - RabbitMQ__ClientProvidedName=WebAppDocker
+      - RabbitMQ__PublisherConfirmsEnabled=true
+      - RabbitMQ__EnableDeadLetter=true
+      - RabbitMQ__MaxRetryAttempts=3
+      - WebApp__MaxStoredMessages=100
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

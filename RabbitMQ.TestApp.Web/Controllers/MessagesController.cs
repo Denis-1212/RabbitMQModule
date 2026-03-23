@@ -8,30 +8,12 @@ using Services;
 
 [ApiController]
 [Route("api/[controller]")]
-public class MessagesController : ControllerBase
+public class MessagesController(
+    IMessageService messageService,
+    IMessageStore messageStore,
+    ILogger<MessagesController> logger)
+    : ControllerBase
 {
-
-    #region Fields
-
-    private readonly IMessageService _messageService;
-    private readonly IMessageStore _messageStore;
-    private readonly ILogger<MessagesController> _logger;
-
-    #endregion
-
-    #region Constructors
-
-    public MessagesController(
-        IMessageService messageService,
-        IMessageStore messageStore,
-        ILogger<MessagesController> logger)
-    {
-        _messageService = messageService;
-        _messageStore = messageStore;
-        _logger = logger;
-    }
-
-    #endregion
 
     #region Methods
 
@@ -52,7 +34,7 @@ public class MessagesController : ControllerBase
 
         try
         {
-            GenericMessage message = await _messageService.SendMessageAsync(request);
+            GenericMessage message = await messageService.SendMessageAsync(request);
 
             return Ok(
                 new
@@ -66,7 +48,7 @@ public class MessagesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка при отправке сообщения");
+            logger.LogError(ex, "Ошибка при отправке сообщения");
             return StatusCode(
                 500,
                 new
@@ -82,7 +64,7 @@ public class MessagesController : ControllerBase
     [HttpGet]
     public IActionResult GetMessages([FromQuery] int count = 20)
     {
-        IReadOnlyList<ProcessedMessage> messages = _messageStore.GetRecent(Math.Min(count, 100));
+        IReadOnlyList<ProcessedMessage> messages = messageStore.GetRecent(Math.Min(count, 100));
         return Ok(messages);
     }
 
@@ -92,7 +74,7 @@ public class MessagesController : ControllerBase
     [HttpGet("{id}")]
     public IActionResult GetMessage(string id)
     {
-        ProcessedMessage? message = _messageStore.GetById(id);
+        ProcessedMessage? message = messageStore.GetById(id);
 
         if (message == null)
         {
@@ -108,7 +90,7 @@ public class MessagesController : ControllerBase
     [HttpDelete]
     public IActionResult ClearHistory()
     {
-        _messageStore.Clear();
+        messageStore.Clear();
         return NoContent();
     }
 
