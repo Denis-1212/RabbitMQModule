@@ -142,6 +142,16 @@ public class ConsumerHostedService(
         {
             IChannel channel = await _connection!.CreateChannelAsync(cancellationToken: cancellationToken);
 
+            channel.ChannelShutdownAsync += (sender, args) =>
+            {
+                _logger.LogWarning(
+                    "КАНАЛ {ChannelNumber} ЗАКРЫТ! Причина: {Reason}",
+                    channel.ChannelNumber,
+                    args.ReplyText);
+
+                return Task.CompletedTask;
+            };
+
             await channel.BasicQosAsync(
                 0,
                 registration.Options.PrefetchCount,

@@ -54,7 +54,12 @@ public class MessageDispatcher(
     {
         ulong deliveryTag = args.DeliveryTag;
         DateTime startTime = DateTime.UtcNow;
-        _logger.LogDebug("🚀 НАЧАЛО обработки сообщения с delivery tag: {DeliveryTag}", deliveryTag);
+        int channelNumber = channel.ChannelNumber;
+
+        _logger.LogDebug(
+            "НАЧАЛО обработки сообщения: delivery tag={DeliveryTag}, канал={ChannelNumber}",
+            deliveryTag,
+            channelNumber);
 
         try
         {
@@ -91,6 +96,11 @@ public class MessageDispatcher(
                 deliveryTag,
                 startTime,
                 cancellationToken);
+
+            _logger.LogDebug(
+                "КОНЕЦ обработки сообщения: delivery tag={DeliveryTag}, канал={ChannelNumber}",
+                deliveryTag,
+                channelNumber);
         }
         catch (Exception ex)
         {
@@ -177,9 +187,8 @@ public class MessageDispatcher(
             envelope.MessageId,
             args.RoutingKey,
             envelope.Timestamp,
-            args.DeliveryTag,
+            deliveryTag,
             channel,
-            _logger,
             cancellationToken);
 
         if (_options.DeliveryControl.UseTransactions)
@@ -249,8 +258,15 @@ public class MessageDispatcher(
         }
         else
         {
-            _logger.LogDebug("📤 ОТПРАВКА Ack для delivery tag: {DeliveryTag}", deliveryTag);
+            // await channel.BasicAckAsync(deliveryTag, false, cancellationToken);
+
+            _logger.LogDebug(
+                "ОТПРАВКА Ack для delivery tag: {DeliveryTag}, канал: {ChannelNumber}",
+                deliveryTag,
+                channel.ChannelNumber);
+
             await channel.BasicAckAsync(deliveryTag, false, cancellationToken);
+
             _logger.LogDebug("✅ Ack ОТПРАВЛЕН для delivery tag: {DeliveryTag}", deliveryTag);
         }
 
@@ -395,16 +411,6 @@ public class MessageDispatcher(
                 "Бизнес-ошибка, отправка сообщения {MessageId} в Dead Letter Queue",
                 envelope.MessageId);
 
-            // Сначала подтверждаем оригинальное сообщение (если канал еще открыт)
-            if (channel.IsOpen)
-            {
-                await channel.BasicAckAsync(deliveryTag, false, cancellationToken);
-            }
-            else
-            {
-                _logger.LogWarning("Канал закрыт, невозможно подтвердить сообщение {MessageId}", envelope.MessageId);
-            }
-
             await MoveToDeadLetterAsync(channel, envelope, args, exception.GetType().Name, cancellationToken);
             _metrics.MessageDeadLettered(messageType ?? "unknown", exception.GetType().Name);
             return;
@@ -514,23 +520,7 @@ public class MessageDispatcher(
         if (!_options.DeliveryControl.EnableDeadLetter)
         {
             _logger.LogWarning("DLQ отключена, сообщение {MessageId} будет потеряно", envelope.MessageId);
-
-            if (channel.IsOpen)
-            {
-                await channel.BasicAckAsync(args.DeliveryTag, false, cancellationToken);
-            }
-            else
-            {
-                _logger.LogWarning("Канал закрыт, невозможно подтвердить сообщение {MessageId}", envelope.MessageId);
-            }
-
-            return;
-        }
-
-        // Проверяем, что канал открыт перед публикацией
-        if (!channel.IsOpen)
-        {
-            _logger.LogError("Канал закрыт, невозможно отправить сообщение {MessageId} в DLQ", envelope.MessageId);
+            await channel.BasicAckAsync(args.DeliveryTag, false, cancellationToken);
             return;
         }
 

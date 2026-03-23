@@ -30,6 +30,12 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
     #endregion
 
+    #region Properties
+
+    private ITestOutputHelper Output => output;
+
+    #endregion
+
     #region Methods
 
     [Fact]
@@ -72,26 +78,36 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
         await Task.Delay(500);
 
-        var testMessage = new TestMessage
-        {
-            Text = "Hello",
-            Number = 42
-        };
-
         // Act
-        await _publisher.PublishAsync(
-            testMessage,
-            config =>
+
+        for (int i = 0; i < 3; i++)
+        {
+            var testMessage = new TestMessage
             {
-                config.WithRoutingKey("test.queue");
-            });
+                Text = $"Hello {i + 1}",
+                Number = i + 1
+            };
+
+            await _publisher.PublishAsync(
+                testMessage,
+                config =>
+                {
+                    config.WithRoutingKey("test.queue");
+                });
+
+            output.WriteLine($"Отправлено сообщение {i + 1}");
+            await Task.Delay(1000);
+        }
 
         // Assert
         bool messageReceived = await _messageSignal.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.True(messageReceived, "Сообщение не было получено");
-        Assert.Single(_receivedMessages);
-        Assert.Equal("Hello", _receivedMessages[0].Text);
-        Assert.Equal(42, _receivedMessages[0].Number);
+
+        Assert.Equal(3, _receivedMessages.Count);
+        Assert.Equal("Hello 1", _receivedMessages[0].Text);
+        Assert.Equal("Hello 2", _receivedMessages[1].Text);
+        Assert.Equal(1, _receivedMessages[0].Number);
+        Assert.Equal(2, _receivedMessages[1].Number);
     }
 
     public async Task InitializeAsync()
@@ -136,11 +152,13 @@ public class ConsumerHostedServiceTests(ITestOutputHelper output) : IAsyncLifeti
 
         #region Methods
 
-        public async Task HandleAsync(TestMessage message, IMessageContext context, CancellationToken cancellationToken)
+        public Task HandleAsync(TestMessage message, IMessageContext context, CancellationToken cancellationToken)
         {
+            tests.Output.WriteLine($"HandleAsync TestMessage {message.Text}");
+
             tests._receivedMessages.Add(message);
             tests._messageSignal.Release();
-            await context.AckAsync(cancellationToken);
+            return Task.CompletedTask;
         }
 
         #endregion

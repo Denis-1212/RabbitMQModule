@@ -461,7 +461,7 @@ public class ConsumerRetryTests : IAsyncLifetime
 
             _tests._output.WriteLine("✅ Сообщение обработано успешно");
             _tests._receivedMessages.Add(message);
-            await context.AckAsync(cancellationToken);
+
             _tests._messageSignal.Release();
         }
 
@@ -471,37 +471,4 @@ public class ConsumerRetryTests : IAsyncLifetime
 
     #endregion
 
-    // private async Task PurgeQueue(int port, string queueName)
-    // {
-    //     try
-    //     {
-    //         var connectionManager = new ConnectionManager(
-    //             new MessagingOptions
-    //             {
-    //                 ConnectionString = $"amqp://guest:guest@localhost:{port}"
-    //             },
-    //             new NullLogger<ConnectionManager>());
-    //
-    //         IConnection connection = await connectionManager.GetConnectionAsync();
-    //         IChannel channel = await connection.CreateChannelAsync();
-    //
-    //         // Проверяем существование очереди перед очисткой
-    //         try
-    //         {
-    //             await channel.QueueDeclarePassiveAsync(queueName);
-    //             await channel.QueuePurgeAsync(queueName);
-    //             _output.WriteLine($"Очередь {queueName} очищена");
-    //         }
-    //         catch (OperationInterruptedException ex) when (ex.Message.Contains("NOT_FOUND"))
-    //         {
-    //             _output.WriteLine($"Очередь {queueName} не существует, пропускаем очистку");
-    //         }
-    //
-    //         await channel.CloseAsync();
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         _output.WriteLine($"Ошибка при очистке очереди {queueName}: {ex.Message}");
-    //     }
-    // }
 }
