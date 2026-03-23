@@ -37,6 +37,11 @@ internal class MessageContext(
             return;
         }
 
+        if (!channel.IsOpen)
+        {
+            return;
+        }
+
         CancellationToken token = cancellationToken1 == CancellationToken.None ? cancellationToken : cancellationToken1;
         await channel.BasicAckAsync(deliveryTag, false, token);
         _isAcked = true;
