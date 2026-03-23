@@ -24,17 +24,9 @@ public class OrderCreatedHandler(ILogger<OrderCreatedHandler> logger) : IMessage
         // Имитация бизнес-логики с случайными ошибками
         try
         {
-            // 20% ошибок для демонстрации retry
-            if (_random.Next(100) < 20)
-            {
-                throw new InvalidOperationException("Случайная ошибка обработки заказа");
-            }
-
             // Имитация обработки
             await Task.Delay(_random.Next(500, 1500), cancellationToken);
-
             logger.LogInformation("Заказ обработан: {OrderId}", message.OrderId);
-            await context.AckAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
