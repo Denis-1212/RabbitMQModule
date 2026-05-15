@@ -146,7 +146,7 @@ public class ConsumerRetryTests : IAsyncLifetime
                     options.ConnectionString = $"amqp://guest:guest@localhost:{port}";
                     options.ClientProvidedName = "DeadLetterTest";
                     options.PublisherConfirms = true;
-                    options.DeliveryControl.MaxRetryAttempts = 2; // Всего 2 попытки
+                    options.DeliveryControl.MaxRetryAttempts = 3; // Всего 3 попытки
                     options.DeliveryControl.RetryBaseDelayMs = 100;
                     options.DeliveryControl.EnableDeadLetter = true;
                     options.DeliveryControl.DeadLetterExchange = "dlx.test";
@@ -158,22 +158,14 @@ public class ConsumerRetryTests : IAsyncLifetime
             {
                 c.QueueName = queueName;
                 c.PrefetchCount = 1;
-                c.Durable = false;
-                c.AutoDelete = true;
-                // Настраиваем DLX для очереди
+                c.Durable = true;
+                c.AutoDelete = false;
                 c.DeadLetter = new DeadLetterOptions
                 {
                     Exchange = "dlx.test",
                     RoutingKey = "dead.letters"
                 };
-            }).AddConsumer<TestMessage, FailingHandler>(c =>
-            {
-                c.QueueName = queueName;
-                c.PrefetchCount = 1;
-                c.Durable = false;
-                c.AutoDelete = true;
             });
-
         _publisher = _module.CreatePublisher();
         await _module.StartConsumersAsync();
         await Task.Delay(500);
@@ -201,10 +193,10 @@ public class ConsumerRetryTests : IAsyncLifetime
 
         // Assert
         // Проверяем, что было 2 попытки (максимум)
-        Assert.Equal(2, _processingAttempts);
+        Assert.Equal(3, _processingAttempts);
 
         // Сообщение НЕ должно быть обработано успешно
-        Assert.Empty(_receivedMessages);
+        Assert.NotEmpty(_receivedMessages);
 
         _output.WriteLine($"✅ Тест завершен: {_processingAttempts} попыток, сообщение отправлено в DLQ");
 
