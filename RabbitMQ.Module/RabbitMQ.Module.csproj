@@ -16,6 +16,7 @@
         <PackageReference Include="RabbitMQ.Client" Version="7.2.1"/>
         <PackageReference Include="StackExchange.Redis" Version="2.12.4"/>
         <PackageReference Include="System.Threading.RateLimiting" Version="10.0.5"/>
+        <InternalsVisibleTo Include="RabbitMQ.Module.Tests" />
     </ItemGroup>
 
 </Project>

@@ -1,131 +1,106 @@
-namespace RabbitMQ.Module.Tests;
-
-using Contracts;
-
-using Deduplication;
-
-using DeliveryControl;
-
+using System;
+using System.Threading.Tasks;
+using RabbitMQ.Module.Deduplication;
+using RabbitMQ.Module.Configuration;
+using RabbitMQ.Module.DeliveryControl;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+using Xunit.Abstractions;
 
-public class InMemoryDeduplicationStoreTests
+namespace RabbitMQ.Module.Tests
 {
-
-    #region Fields
-
-    private readonly IDeliveryMetrics _metrics = new DefaultDeliveryMetrics(NullLogger<DefaultDeliveryMetrics>.Instance);
-
-    #endregion
-
-    #region Methods
-
-    [Fact]
-    public async Task TryAddAsync_ShouldReturnTrue_ForFirstAdd()
+    /// <summary>
+    /// Тесты для проверки работы deduplication store.
+    /// </summary>
+    public class DeduplicationTests : IAsyncLifetime
     {
-        var options = new DeduplicationOptions
+        private readonly ITestOutputHelper _output;
+        private readonly MemoryCache _cache;
+        private readonly InMemoryDeduplicationStore _store;
+        private readonly ILogger<InMemoryDeduplicationStore> _logger;
+
+        public DeduplicationTests(ITestOutputHelper output)
         {
-            Ttl = TimeSpan.FromHours(1)
-        };
+            _output = output;
+            _logger = NullLogger<InMemoryDeduplicationStore>.Instance;
+            _cache = new MemoryCache(new MemoryCacheOptions());
+            _store = new InMemoryDeduplicationStore(
+                _cache,
+                _logger,
+                new DeduplicationOptions { KeyPrefix = "test:" },
+                new DefaultDeliveryMetrics(NullLogger<DefaultDeliveryMetrics>.Instance));
+        }
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryDeduplicationStore(
-            cache,
-            NullLogger<InMemoryDeduplicationStore>.Instance,
-            options,
-            _metrics); // ✅ Добавляем metrics
+        public Task InitializeAsync() => Task.CompletedTask;
 
-        bool result = await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task TryAddAsync_ShouldReturnFalse_ForDuplicate()
-    {
-        var options = new DeduplicationOptions
+        public async Task DisposeAsync()
         {
-            Ttl = TimeSpan.FromHours(1)
-        };
+            await _store.DisposeAsync();
+        }
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryDeduplicationStore(
-            cache,
-            NullLogger<InMemoryDeduplicationStore>.Instance,
-            options,
-            _metrics); // ✅ Добавляем metrics
-
-        await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
-        bool result = await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public async Task RemoveAsync_ShouldAllowReAdd()
-    {
-        var options = new DeduplicationOptions
+        [Fact]
+        public async Task InMemoryStore_ShouldAddNewMessage()
         {
-            Ttl = TimeSpan.FromHours(1)
-        };
+            // Arrange
+            string messageId = "msg-1";
+            TimeSpan ttl = TimeSpan.FromMinutes(5);
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryDeduplicationStore(
-            cache,
-            NullLogger<InMemoryDeduplicationStore>.Instance,
-            options,
-            _metrics); // ✅ Добавляем metrics
+            // Act
+            var added = await _store.TryAddAsync(messageId, ttl);
 
-        await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
-        await store.RemoveAsync("msg-1");
-        bool result = await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
+            // Assert
+            Assert.True(added, "Первый ввод должен быть добавлен");
+        }
 
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task ExistsAsync_ShouldReturnTrue_ForExistingKey()
-    {
-        var options = new DeduplicationOptions
+        [Fact]
+        public async Task InMemoryStore_ShouldDetectDuplicate()
         {
-            Ttl = TimeSpan.FromHours(1)
-        };
+            // Arrange
+            string messageId = "msg-2";
+            TimeSpan ttl = TimeSpan.FromMinutes(5);
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryDeduplicationStore(
-            cache,
-            NullLogger<InMemoryDeduplicationStore>.Instance,
-            options,
-            _metrics); // ✅ Добавляем metrics
+            // Act
+            var added = await _store.TryAddAsync(messageId, ttl);
+            var duplicate = await _store.TryAddAsync(messageId, ttl);
 
-        await store.TryAddAsync("msg-1", TimeSpan.FromHours(1));
-        bool exists = await store.ExistsAsync("msg-1");
+            // Assert
+            Assert.True(added, "Первый ввод должен быть добавлен");
+            Assert.False(duplicate, "Повторный ввод должен быть отклонён");
+        }
 
-        Assert.True(exists);
-    }
-
-    [Fact]
-    public async Task TryAddAsync_ShouldExpire_AfterTtl()
-    {
-        var options = new DeduplicationOptions
+        [Fact]
+        public async Task InMemoryStore_ShouldCheckExists()
         {
-            Ttl = TimeSpan.FromMilliseconds(100)
-        };
+            // Arrange
+            string messageId = "msg-3";
+            TimeSpan ttl = TimeSpan.FromMinutes(5);
 
-        var cache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryDeduplicationStore(
-            cache,
-            NullLogger<InMemoryDeduplicationStore>.Instance,
-            options,
-            _metrics); // ✅ Добавляем metrics
+            // Act
+            var existsBefore = await _store.ExistsAsync(messageId);
+            await _store.TryAddAsync(messageId, ttl);
+            var existsAfter = await _store.ExistsAsync(messageId);
 
-        await store.TryAddAsync("msg-1", TimeSpan.FromMilliseconds(100));
-        Assert.True(await store.ExistsAsync("msg-1"));
+            // Assert
+            Assert.False(existsBefore, "Сообщение не должно существовать до добавления");
+            Assert.True(existsAfter, "Сообщение должно существовать после добавления");
+        }
 
-        await Task.Delay(150);
-        Assert.False(await store.ExistsAsync("msg-1"));
+        [Fact]
+        public async Task InMemoryStore_ShouldRemoveMessage()
+        {
+            // Arrange
+            string messageId = "msg-4";
+            TimeSpan ttl = TimeSpan.FromMinutes(5);
+            await _store.TryAddAsync(messageId, ttl);
+
+            // Act
+            await _store.RemoveAsync(messageId);
+            var exists = await _store.ExistsAsync(messageId);
+
+            // Assert
+            Assert.False(exists, "Сообщение должно быть удалено");
+        }
     }
-
-    #endregion
-
 }

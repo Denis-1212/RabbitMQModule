@@ -8,7 +8,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{50BA
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RabbitMQ.Module", "RabbitMQ.Module\RabbitMQ.Module.csproj", "{DBF75D58-4E1E-491B-9A59-1FF2706E6FEA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RabbitMQ.TestApp.Console", "RabbitMQ.TestApp.Console \RabbitMQ.TestApp.Console.csproj", "{5635F65A-B6A3-4C22-8F6E-4A4CD944785C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RabbitMQ.TestApp.Console", "RabbitMQ.TestApp.Console\RabbitMQ.TestApp.Console.csproj", "{5635F65A-B6A3-4C22-8F6E-4A4CD944785C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RabbitMQ.Module.Tests", "RabbitMQ.Module.Tests\RabbitMQ.Module.Tests.csproj", "{7967D15E-87AA-4182-A1DA-C20206BA9E63}"
 EndProject
